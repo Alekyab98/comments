@@ -1,0 +1,123 @@
+fqdn_mapping AS (
+  SELECT
+    fc.*,
+CASE 
+      WHEN fc.fqdn_type = 'primary' THEN fc.clli_base 
+      WHEN fc.fqdn_type = 'secondary' AND fc.fqdn LIKE 'HLBOOR38%' AND SUBSTR(fc.fqdn, -2, 2) = '01' THEN 'RDMEWA22'
+      WHEN fc.fqdn_type = 'secondary' AND fc.fqdn LIKE 'HLBOOR38%' AND SUBSTR(fc.fqdn, -2, 2) = '02' THEN 'RDMEWA22'
+      WHEN fc.fqdn_type = 'secondary' AND fc.fqdn LIKE 'HLBOOR38%' AND SUBSTR(fc.fqdn, -2, 2) = '11' THEN 'MILNHI04'
+      WHEN fc.fqdn_type = 'secondary'  THEN pm.primary_clli
+      ELSE NULL
+    END AS primary_clli,  
+    CASE 
+      WHEN fc.fqdn_type = 'primary' AND pm.primary_clli IS NOT NULL THEN pm.primary_clli 
+      WHEN fc.fqdn_type = 'secondary' AND pm.secondary_clli IS NOT NULL THEN pm.secondary_clli 
+      ELSE NULL
+    END AS device_clli
+
+  FROM fqdn_classification fc
+
+  LEFT JOIN (
+    SELECT 
+      UPPER(site_clli) AS primary_clli, 
+      UPPER(pair) AS secondary_clli ,
+    FROM `${aether_5g_core_module_tgt_project_id}.${aether_5g_core_module_site_config_dataset_name}.${aether_5g_core_module_aether_site_confg_tblname}`
+     ) pm 
+  ON (fc.fqdn_type = 'primary' AND fc.clli_base = pm.primary_clli)
+  OR (fc.fqdn_type = 'secondary' AND fc.clli_base = pm.secondary_clli)
+     group by all
+) 
+  SELECT 
+  fm.trans_dt,
+  fm.event_time,
+  DATETIME(TIMESTAMP(fm.event_time), sc.timezone) AS local_event_time,
+  fm.fqdn,
+  fm.vendor,
+  fm.metric_name,
+  fm.value,
+  fm.group_key,
+  fm.group_value,
+  fm.fqdn_type, 
+  fm.primary_clli,
+  fm.device_clli,
+  sc.site_name,
+  sc.region,
+  sc.latitude,
+  sc.longitude,
+  sc.area,
+  sc.market,
+  fm.schedule_time,
+  fm.updated_timestamp
+  FROM fqdn_mapping fm
+  LEFT JOIN`${aether_5g_core_module_tgt_project_id}.${aether_5g_core_module_site_config_dataset_name}.${aether_5g_core_module_aether_site_confg_tblname}` sc
+    ON fm.primary_clli = sc.site_clli  -- **FIXED JOIN CONDITION**
+
+) src
+ON tgt.fqdn=src.fqdn
+and tgt.event_time=src.event_time
+and tgt.trans_dt=src.trans_dt
+and tgt.metric_name=src.metric_name
+and tgt.vendor=src.vendor
+and coalesce(tgt.group_key,' ')=coalesce(src.group_key,' ')
+and coalesce(tgt.group_value,' ')=coalesce(src.group_value,' ')
+and tgt.trans_dt is not null
+
+WHEN MATCHED
+THEN UPDATE SET
+tgt.local_event_time=src.local_event_time,
+tgt.value=src.value,
+tgt.fqdn_type=src.fqdn_type,
+tgt.primary_clli=src.primary_clli,
+tgt.device_clli=src.device_clli,
+tgt.site_name=src.site_name,
+tgt.region=src.region,
+tgt.latitude=src.latitude,
+tgt.longitude=src.longitude,
+tgt.area=src.area,
+tgt.market=src.market,
+tgt.schedule_time=src.schedule_time,
+tgt.updated_timestamp=src.updated_timestamp
+
+WHEN NOT MATCHED THEN
+INSERT
+( trans_dt,
+  event_time,
+  local_event_time,
+  fqdn,
+  vendor,
+  metric_name,
+  value,
+  group_key,
+  group_value,
+  fqdn_type, 
+  primary_clli,
+  device_clli,
+  site_name,
+  region,
+  latitude,
+  longitude,
+  area,
+  market,
+  schedule_time,
+  updated_timestamp
+)VALUES
+( src.trans_dt,
+  src.event_time,
+  src.local_event_time,
+  src.fqdn,
+  src.vendor,
+  src.metric_name,
+  src.value,
+  src.group_key,
+  src.group_value,
+  src.fqdn_type, 
+  src.primary_clli,
+  src.device_clli,
+  src.site_name,
+  src.region,
+  src.latitude,
+  src.longitude,
+  src.area,
+  src.market,
+  src.schedule_time,
+  src.updated_timestamp);
